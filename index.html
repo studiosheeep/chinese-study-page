@@ -111,6 +111,16 @@ button {
     font-size: 12px;
     margin-left: 4px;
   }
+
+  /* クリア・ペーストボタンは横幅いっぱいにしない */
+  #clearSource,
+  #pasteSource {
+    width: auto;
+    padding: 4px 8px;
+    font-size: 12px;
+    margin-left: 4px;
+    margin-top: 0;
+  }
 }
   </style>
 </head>
@@ -127,7 +137,11 @@ button {
   <div id="ao3Note">※AO3の作品ページURLのみ対応 / CORS回避のため allOrigins プロキシを利用します。</div>
 </div>
 
-<h3>翻訳したい文章</h3>
+<h3>
+  翻訳したい文章
+  <button id="clearSource" type="button">クリア</button>
+  <button id="pasteSource" type="button">ペースト</button>
+</h3>
 <textarea id="source" placeholder="ここに中国語の文章を貼る（AO3から読み込んだ本文もここに入ります）"></textarea><br>
 <button id="analyze">解析</button>
 <div id="status"></div>
@@ -172,6 +186,8 @@ const speakBtn   = document.getElementById('speakWords');
 const stopBtn    = document.getElementById('stopWords');
 const pauseBtn   = document.getElementById('pauseWords');
 const speedBtn   = document.getElementById('speedWords');
+const clearBtn   = document.getElementById('clearSource');
+const pasteBtn   = document.getElementById('pasteSource');
 
 // 単語訳キャッシュ
 let wordJaDict = {};
@@ -190,10 +206,10 @@ let speechRate = 0.9;      // 単語読み上げの速度
 let speakTokens = [];
 let currentIndex = 0;
 
-// ★ 中国語の音声を保持するための変数
+// 中国語の音声を保持するための変数
 let zhVoice = null;
 
-// ★ 利用可能な voice から中国語用のものを探す
+// 利用可能な voice から中国語用のものを探す
 function initVoices() {
   if (!('speechSynthesis' in window)) return;
   const voices = window.speechSynthesis.getVoices();
@@ -432,7 +448,7 @@ pauseBtn.addEventListener('click', () => {
   }
 });
 
-// ★ 「文章を読む(ハイライトなし)」ボタン：テキストエリア全体を連続再生
+// 「文章を読む(ハイライトなし)」ボタン：テキストエリア全体を連続再生
 speedBtn.addEventListener('click', () => {
   if (!("speechSynthesis" in window)) {
     alert("このブラウザは音声読み上げに対応していません。");
@@ -464,6 +480,45 @@ speedBtn.addEventListener('click', () => {
   utt.rate = 1.0;
 
   window.speechSynthesis.speak(utt);
+});
+
+// クリアボタン：テキストと結果をリセット
+clearBtn.addEventListener('click', () => {
+  srcEl.value = "";
+  resultDiv.innerHTML = "";
+  jpFullEl.textContent = "";
+  statusEl.textContent = "本文をクリアしました。";
+
+  // 音声とハイライトもリセット
+  resetHighlights();
+  tokenPositions = [];
+  speaking = false;
+  paused = false;
+  currentIndex = 0;
+  pauseBtn.textContent = "一時停止";
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+});
+
+// ペーストボタン：クリップボードのテキストを貼り付け
+pasteBtn.addEventListener('click', async () => {
+  if (!navigator.clipboard || !navigator.clipboard.readText) {
+    alert("クリップボードから読み取れません。手動で貼り付けてください。");
+    return;
+  }
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      alert("クリップボードにテキストがありません。");
+      return;
+    }
+    srcEl.value = text;
+    statusEl.textContent = "クリップボードのテキストを貼り付けました。";
+  } catch (e) {
+    console.error(e);
+    alert("クリップボードの読み取りに失敗しました。ブラウザの設定で許可されているか確認してください。");
+  }
 });
 
 // ========= 解析本体 =========
