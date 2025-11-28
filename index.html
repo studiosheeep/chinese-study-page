@@ -603,32 +603,41 @@ async function runAnalyze(optionalText) {
       dom: div
     };
     tokenPositions.push(tokenObj);
-
-    // カードクリックでその位置から単語再生
+    
+    // カードクリックで「その単語だけ」を再生
     div.addEventListener('click', () => {
       if (!('speechSynthesis' in window)) return;
-      if (!tokenPositions.length) return;
 
       initVoices();
 
+      // 進行中の読み上げを止めてハイライトもリセット
+      speaking = false;
+      paused = false;
+      currentIndex = 0;
+      pauseBtn.textContent = "一時停止";
       window.speechSynthesis.cancel();
       resetHighlights();
 
-      speakTokens = tokenPositions.filter(t => hasCJK(t.word));
-      if (!speakTokens.length) return;
+      // 中国語以外のカードは無視
+      if (!hasCJK(tokenObj.word)) return;
 
-      let idx = speakTokens.indexOf(tokenObj);
-      if (idx === -1) {
-        idx = speakTokens.findIndex(t => t.start >= tokenObj.start);
+      // このカードだけハイライト
+      tokenObj.dom.style.background = "yellow";
+
+      const utt = new SpeechSynthesisUtterance(tokenObj.word);
+      utt.lang = "zh-CN";
+      if (zhVoice) {
+        utt.voice = zhVoice;
       }
-      if (idx === -1) return;
+      // 単語読み上げの速度を既存設定に合わせる
+      utt.rate = speechRate;
 
-      speaking = true;
-      paused = false;
-      pauseBtn.textContent = "一時停止";
-      currentIndex = idx;
+      // 再生終了したらハイライト解除
+      utt.onend = () => {
+        tokenObj.dom.style.background = "#fff";
+      };
 
-      speakCurrentToken();
+      window.speechSynthesis.speak(utt);
     });
 
     resultDiv.appendChild(div);
