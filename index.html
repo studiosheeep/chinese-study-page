@@ -189,6 +189,30 @@ let speechRate = 0.9;      // 通常速度
 let speakTokens = [];
 let currentIndex = 0;
 
+// ★ 中国語の音声を保持するための変数
+let zhVoice = null;
+
+// ★ 利用可能な voice から中国語用のものを探す
+function initVoices() {
+  if (!('speechSynthesis' in window)) return;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices || !voices.length) return;
+
+  // lang が zh ではじまるものを優先的に採用
+  zhVoice =
+    voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh-cn')) ||
+    voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh')) ||
+    zhVoice;
+
+  // 見つからなかった場合は何もしない（ブラウザのデフォルトに任せる）
+}
+
+// ページ読み込み時と voice リスト更新時に実行
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = initVoices;
+  initVoices();
+}
+
 // ========= 名前結合ロジック（テキスト範囲ベース） =========
 function mergeNamesByRange(text, tokens, positions) {
   const ranges = [];
@@ -260,25 +284,21 @@ function hasCJK(str) {
 
 // Google 無料翻訳（長文は分割して翻訳）
 async function googleTranslate(text) {
-  // 1チャンクあたりの最大文字数（URL長対策）
-  const MAX_LEN = 900; // 少し余裕を見て 900 文字くらいに
+  const MAX_LEN = 900;
 
   const parts = [];
   let cur = 0;
-
   while (cur < text.length) {
     let end = Math.min(cur + MAX_LEN, text.length);
     let slice = text.slice(cur, end);
 
-    // 途中なら、できるだけ文末などで区切る
     if (end < text.length) {
       let cut =
         slice.lastIndexOf("。") > 50 ? slice.lastIndexOf("。")
         : slice.lastIndexOf("？") > 50 ? slice.lastIndexOf("？")
         : slice.lastIndexOf("！") > 50 ? slice.lastIndexOf("！")
         : slice.lastIndexOf("\n");
-
-      if (cut > 50) { // あまり手前すぎる位置で切らない
+      if (cut > 50) {
         end = cur + cut + 1;
         slice = text.slice(cur, end);
       }
@@ -289,7 +309,6 @@ async function googleTranslate(text) {
   }
 
   const results = [];
-
   for (const part of parts) {
     const url =
       "https://translate.googleapis.com/translate_a/single" +
@@ -301,13 +320,10 @@ async function googleTranslate(text) {
       console.error("Google翻訳エラー:", res.status, await res.text());
       throw new Error("Google Translate HTTP " + res.status);
     }
-
     const data = await res.json();
     const ja = data[0].map(item => item[0]).join("");
     results.push(ja);
   }
-
-  // 各チャンクの結果を結合して返す
   return results.join("");
 }
 
@@ -353,7 +369,12 @@ function speakCurrentToken() {
   t.dom.style.background = "yellow";
 
   const utt = new SpeechSynthesisUtterance(t.word);
+  // ★ 中国語として読む設定
   utt.lang = "zh-CN";
+  if (zhVoice) {
+    utt.voice = zhVoice;
+  }
+
   utt.rate = speechRate;
 
   utt.onend = () => {
@@ -376,6 +397,9 @@ speakBtn.addEventListener('click', () => {
     alert("このブラウザは音声読み上げに対応していません。");
     return;
   }
+
+  // 念のため最新の voice 情報を取得
+  initVoices();
 
   window.speechSynthesis.cancel();
   resetHighlights();
@@ -414,7 +438,6 @@ pauseBtn.addEventListener('click', () => {
 });
 
 speedBtn.addEventListener('click', () => {
-  // 0.9倍 ↔ 2.0倍
   if (speechRate < 1.2) {
     speechRate = 2.0;
     speedBtn.textContent = "等速";
@@ -457,7 +480,6 @@ async function runAnalyze(optionalText) {
 
   const { pinyin } = window.pinyinPro;
 
-  // 1) segmentit 用に名前の前後に空白を入れてから分かち書き
   const segment = Segmentit.useDefault(new Segmentit.Segment());
   let workText = text;
   for (const name of Object.keys(BASE_DICT)) {
@@ -487,30 +509,24 @@ async function runAnalyze(optionalText) {
     rawPositions.push({ word: w, start, end });
   }
 
-  // 2) 固有名詞まとめ（テキスト上の範囲で判定）
   const merged = mergeNamesByRange(text, rawTokens, rawPositions);
   const tokens = merged.tokens;
   const positions = merged.positions;
 
-  // 3) 単語ごとの日本語
   statusEl.textContent = "単語の意味を取得中（Google翻訳）…";
   await translateWordsToJa(tokens);
 
-  // 4) 全文翻訳
   statusEl.textContent = "全文を翻訳中（Google）…";
   try {
     let ja = await googleTranslate(text);
 
-    // 改行を詰める
     ja = ja.replace(/\n{2,}/g, "\n");
 
-    // 固有名詞の表記ゆれ修正
     ja = ja.replace(/クロード/g, "クラウド");
     ja = ja.replace(/サフィロス/g, "セフィロス");
     ja = ja.replace(/艾瑞丝/g, "エアリス");
     ja = ja.replace(/蒂法/g, "ティファ");
 
-    // 丁寧語 → 常体（長い形から先に置換）
     ja = ja.replace(/していました/g, "していた");
     ja = ja.replace(/しています/g, "している");
     ja = ja.replace(/しました/g, "した");
@@ -537,7 +553,6 @@ async function runAnalyze(optionalText) {
     jpFullEl.textContent = "翻訳中にエラーが発生しました。";
   }
 
-  // 5) 単語カード描画 ＋ クリックでその位置から再生
   resultDiv.innerHTML = "";
   tokenPositions = [];
 
@@ -563,7 +578,6 @@ async function runAnalyze(optionalText) {
        <div class="pinyin">${pin}</div>
        <div class="mean">${mean}</div>`;
 
-    // この単語オブジェクトを作成して tokenPositions に入れる
     const tokenObj = {
       word: w,
       start: pos.start,
@@ -572,23 +586,19 @@ async function runAnalyze(optionalText) {
     };
     tokenPositions.push(tokenObj);
 
-    // ★ クリックした単語から再生・ハイライト
     div.addEventListener('click', () => {
       if (!('speechSynthesis' in window)) return;
       if (!tokenPositions.length) return;
 
-      // いったん停止＆ハイライト解除
+      initVoices();
+
       window.speechSynthesis.cancel();
       resetHighlights();
 
-      // 読み上げ対象（漢字を含む単語）のリストを作り直す
       speakTokens = tokenPositions.filter(t => hasCJK(t.word));
       if (!speakTokens.length) return;
 
-      // この単語が speakTokens の何番目かを調べる
       let idx = speakTokens.indexOf(tokenObj);
-
-      // 漢字を含まないカードだった場合は、この位置以降で最初の漢字カードを探す
       if (idx === -1) {
         idx = speakTokens.findIndex(t => t.start >= tokenObj.start);
       }
@@ -611,8 +621,6 @@ async function runAnalyze(optionalText) {
 btn.addEventListener('click', () => {
   runAnalyze();
 });
-
-// ========= AO3 読み込み =========
 
 async function loadAo3AndAnalyze() {
   const url = (ao3UrlInput.value || "").trim();
@@ -666,7 +674,7 @@ async function loadAo3AndAnalyze() {
     statusEl.textContent = "AO3の読み込みに失敗しました。";
   }
 }
-
+  
 loadAo3Btn.addEventListener('click', loadAo3AndAnalyze);
 </script>
 
