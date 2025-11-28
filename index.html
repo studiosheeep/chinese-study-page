@@ -63,7 +63,7 @@ button {
   font-size: 11px;
   color: #666;
 }
-  
+
 /* === スマホ向けレイアウト（画面幅 600px 以下）=== */
 @media (max-width: 600px) {
   body {
@@ -112,8 +112,7 @@ button {
     margin-left: 4px;
   }
 }
-  
-</style>
+  </style>
 </head>
 <body>
 
@@ -141,7 +140,7 @@ button {
   <button id="speakWords" type="button">音声</button>
   <button id="pauseWords" type="button">一時停止</button>
   <button id="stopWords"  type="button">停止</button>
-  <button id="speedWords" type="button">2倍速</button>
+  <button id="speedWords" type="button">文章を読む(ハイライトなし)</button>
 </h3>
 <div id="result"></div>
 
@@ -156,7 +155,9 @@ const BASE_DICT = {
   "萨菲罗斯": { pinyin: "sà fēi luó sī", meaning: "セフィロス" },
   "克劳德":   { pinyin: "kè láo dé",     meaning: "クラウド" },
   "宝条":     { pinyin: "bǎo tiáo",      meaning: "宝条" },
-  "小鸟":     { pinyin: "xiǎoniǎo",      meaning: "小鳥" }
+  "小鸟":     { pinyin: "xiǎoniǎo",      meaning: "小鳥" },
+  "艾瑞丝":   { pinyin: "Ài ruì sī",     meaning: "エアリス" },
+  "蒂法":     { pinyin: "Dì fǎ",         meaning: "ティファ" },
 };
 
 // DOM
@@ -185,7 +186,7 @@ try {
 let tokenPositions = [];   // { word, start, end, dom }
 let speaking = false;
 let paused   = false;
-let speechRate = 0.9;      // 通常速度
+let speechRate = 0.9;      // 単語読み上げの速度
 let speakTokens = [];
 let currentIndex = 0;
 
@@ -198,13 +199,10 @@ function initVoices() {
   const voices = window.speechSynthesis.getVoices();
   if (!voices || !voices.length) return;
 
-  // lang が zh ではじまるものを優先的に採用
   zhVoice =
     voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh-cn')) ||
     voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh')) ||
     zhVoice;
-
-  // 見つからなかった場合は何もしない（ブラウザのデフォルトに任せる）
 }
 
 // ページ読み込み時と voice リスト更新時に実行
@@ -369,12 +367,10 @@ function speakCurrentToken() {
   t.dom.style.background = "yellow";
 
   const utt = new SpeechSynthesisUtterance(t.word);
-  // ★ 中国語として読む設定
   utt.lang = "zh-CN";
   if (zhVoice) {
     utt.voice = zhVoice;
   }
-
   utt.rate = speechRate;
 
   utt.onend = () => {
@@ -398,7 +394,6 @@ speakBtn.addEventListener('click', () => {
     return;
   }
 
-  // 念のため最新の voice 情報を取得
   initVoices();
 
   window.speechSynthesis.cancel();
@@ -437,14 +432,38 @@ pauseBtn.addEventListener('click', () => {
   }
 });
 
+// ★ 「文章を読む(ハイライトなし)」ボタン：テキストエリア全体を連続再生
 speedBtn.addEventListener('click', () => {
-  if (speechRate < 1.2) {
-    speechRate = 2.0;
-    speedBtn.textContent = "等速";
-  } else {
-    speechRate = 0.9;
-    speedBtn.textContent = "2倍速";
+  if (!("speechSynthesis" in window)) {
+    alert("このブラウザは音声読み上げに対応していません。");
+    return;
   }
+
+  const text = (srcEl.value || "").trim();
+  if (!text) {
+    alert("翻訳したい中国語の文章を貼ってください。");
+    return;
+  }
+
+  initVoices();
+
+  // 単語読み上げ状態をリセット
+  speaking = false;
+  paused = false;
+  currentIndex = 0;
+  pauseBtn.textContent = "一時停止";
+  window.speechSynthesis.cancel();
+  resetHighlights();
+
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = "zh-CN";
+  if (zhVoice) {
+    utt.voice = zhVoice;
+  }
+  // 全文読み上げは標準速度
+  utt.rate = 1.0;
+
+  window.speechSynthesis.speak(utt);
 });
 
 // ========= 解析本体 =========
@@ -522,11 +541,11 @@ async function runAnalyze(optionalText) {
 
     ja = ja.replace(/\n{2,}/g, "\n");
 
+    // 固有名詞の表記ゆれ修正
     ja = ja.replace(/クロード/g, "クラウド");
     ja = ja.replace(/サフィロス/g, "セフィロス");
-    ja = ja.replace(/艾瑞丝/g, "エアリス");
-    ja = ja.replace(/蒂法/g, "ティファ");
 
+    // 丁寧語 → 常体
     ja = ja.replace(/していました/g, "していた");
     ja = ja.replace(/しています/g, "している");
     ja = ja.replace(/しました/g, "した");
@@ -586,6 +605,7 @@ async function runAnalyze(optionalText) {
     };
     tokenPositions.push(tokenObj);
 
+    // カードクリックでその位置から単語再生
     div.addEventListener('click', () => {
       if (!('speechSynthesis' in window)) return;
       if (!tokenPositions.length) return;
@@ -621,6 +641,8 @@ async function runAnalyze(optionalText) {
 btn.addEventListener('click', () => {
   runAnalyze();
 });
+
+// ========= AO3 読み込み =========
 
 async function loadAo3AndAnalyze() {
   const url = (ao3UrlInput.value || "").trim();
@@ -674,7 +696,7 @@ async function loadAo3AndAnalyze() {
     statusEl.textContent = "AO3の読み込みに失敗しました。";
   }
 }
-  
+
 loadAo3Btn.addEventListener('click', loadAo3AndAnalyze);
 </script>
 
