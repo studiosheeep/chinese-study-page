@@ -207,16 +207,57 @@ function hasCJK(str) {
   return /[\u3400-\u9FFF]/.test(str);
 }
 
-// Google 無料翻訳
+// Google 無料翻訳（長文は分割して翻訳）
 async function googleTranslate(text) {
-  const url =
-    "https://translate.googleapis.com/translate_a/single" +
-    "?client=gtx&sl=zh&tl=ja&dt=t&q=" +
-    encodeURIComponent(text);
+  // 1チャンクあたりの最大文字数（URL長対策）
+  const MAX_LEN = 900; // 少し余裕を見て 900 文字くらいに
 
-  const res = await fetch(url);
-  const data = await res.json();
-  return data[0].map(item => item[0]).join("");
+  const parts = [];
+  let cur = 0;
+
+  while (cur < text.length) {
+    let end = Math.min(cur + MAX_LEN, text.length);
+    let slice = text.slice(cur, end);
+
+    // 途中なら、できるだけ文末などで区切る
+    if (end < text.length) {
+      let cut =
+        slice.lastIndexOf("。") > 50 ? slice.lastIndexOf("。")
+        : slice.lastIndexOf("？") > 50 ? slice.lastIndexOf("？")
+        : slice.lastIndexOf("！") > 50 ? slice.lastIndexOf("！")
+        : slice.lastIndexOf("\n");
+
+      if (cut > 50) { // あまり手前すぎる位置で切らない
+        end = cur + cut + 1;
+        slice = text.slice(cur, end);
+      }
+    }
+
+    parts.push(slice);
+    cur = end;
+  }
+
+  const results = [];
+
+  for (const part of parts) {
+    const url =
+      "https://translate.googleapis.com/translate_a/single" +
+      "?client=gtx&sl=zh&tl=ja&dt=t&q=" +
+      encodeURIComponent(part);
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error("Google翻訳エラー:", res.status, await res.text());
+      throw new Error("Google Translate HTTP " + res.status);
+    }
+
+    const data = await res.json();
+    const ja = data[0].map(item => item[0]).join("");
+    results.push(ja);
+  }
+
+  // 各チャンクの結果を結合して返す
+  return results.join("");
 }
 
 // 単語ごと翻訳
