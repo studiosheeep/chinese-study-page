@@ -564,9 +564,6 @@ async function runAnalyze(optionalText) {
     ja = ja.replace(/ません/g, "ない");
 
     ja = ja.replace(/でした/g, "だった");
-    ja = ja.replace(/です/g, "だ");
-
-    ja = ja.replace(/興味ないです/g, "興味ないね");
 
     jpFullEl.textContent = ja;
   } catch (e) {
