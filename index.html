@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>中国語 分解ツール</title>
+<style>
+body {
+  font-family: sans-serif;
+  margin: 20px;
+}
+#ao3Url {
+  width: 80%;
+  font-size: 13px;
+}
+#source {
+  width: 100%;
+  height: 160px;
+  font-size: 14px;
+}
+button {
+  margin-top: 4px;
+}
+.word {
+  display: inline-block;
+  border: 1px solid #ccc;
+  padding: 4px 6px;
+  margin: 4px;
+  border-radius: 4px;
+  vertical-align: top;
+  background: #fff;
+  transition: background 0.15s;
+}
+.word .pinyin {
+  font-size: 0.8em;
+  color: #333;
+}
+.word .mean {
+  font-size: 0.75em;
+  color: #666;
+}
+#status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #666;
+}
+#jpFull {
+  margin-top: 12px;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  min-height: 1.5em;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+#speakWords, #stopWords, #pauseWords, #speedWords {
+  margin-left: 8px;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+#ao3Note {
+  font-size: 11px;
+  color: #666;
+}
+</style>
+</head>
+<body>
+
+<h2>中国語 分解ツール</h2>
+
+<div>
+  <label>
+    ※AO3小説のURL:
+    <input id="ao3Url" type="text" placeholder="https://archiveofourown.org/works/xxxxxx">
+  </label>
+  <button id="loadAo3" type="button">読み込み</button>
+  <div id="ao3Note">※AO3の作品ページURLのみ対応 / CORS回避のため allOrigins プロキシを利用します。</div>
+</div>
+
+<h3>翻訳したい文章</h3>
+<textarea id="source" placeholder="ここに中国語の文章を貼る（AO3から読み込んだ本文もここに入ります）"></textarea><br>
+<button id="analyze">解析</button>
+<div id="status"></div>
+
+<h3>全文の日本語訳（Google翻訳）</h3>
+<div id="jpFull"></div>
+
+<h3>
+  単語ごとの結果
+  <button id="speakWords" type="button">音声</button>
+  <button id="pauseWords" type="button">一時停止</button>
+  <button id="stopWords"  type="button">停止</button>
+  <button id="speedWords" type="button">2倍速</button>
+</h3>
+<div id="result"></div>
+
+<!-- segmentit -->
+<script src="https://cdn.jsdelivr.net/npm/segmentit@2.0.3/dist/umd/segmentit.min.js"></script>
+<!-- pinyin-pro -->
+<script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.27.0/dist/index.min.js"></script>
+
+<script>
+// 固定辞書
+const BASE_DICT = {
+  "萨菲罗斯": { pinyin: "sà fēi luó sī", meaning: "セフィロス" },
+  "克劳德":   { pinyin: "kè láo dé",     meaning: "クラウド" },
+  "宝条":     { pinyin: "bǎo tiáo",      meaning: "宝条" },
+  "小鸟":     { pinyin: "xiǎoniǎo",      meaning: "小鳥" }
+};
+
+// DOM
+const ao3UrlInput = document.getElementById('ao3Url');
+const loadAo3Btn  = document.getElementById('loadAo3');
+const srcEl      = document.getElementById('source');
+const btn        = document.getElementById('analyze');
+const statusEl   = document.getElementById('status');
+const resultDiv  = document.getElementById('result');
+const jpFullEl   = document.getElementById('jpFull');
+const speakBtn   = document.getElementById('speakWords');
+const stopBtn    = document.getElementById('stopWords');
+const pauseBtn   = document.getElementById('pauseWords');
+const speedBtn   = document.getElementById('speedWords');
+
+// 単語訳キャッシュ
+let wordJaDict = {};
+try {
+  const stored = localStorage.getItem('cnWordJaDict');
+  if (stored) wordJaDict = JSON.parse(stored);
+} catch (e) {
+  wordJaDict = {};
+}
+
+// 音声連動用
+let tokenPositions = [];   // { word, start, end, dom }
+let speaking = false;
+let paused   = false;
+let speechRate = 0.9;      // 通常速度
+let speakTokens = [];
+let currentIndex = 0;
+
+// ========= 名前結合ロジック（テキスト範囲ベース） =========
+function mergeNamesByRange(text, tokens, positions) {
+  const ranges = [];
+
+  for (const name of Object.keys(BASE_DICT)) {
+    let idx = text.indexOf(name);
+    while (idx !== -1) {
+      ranges.push({ name, start: idx, end: idx + name.length });
+      idx = text.indexOf(name, idx + 1);
+    }
+  }
+
+  if (!ranges.length) {
+    return { tokens, positions };
+  }
+
+  ranges.sort((a, b) => a.start - b.start);
+
+  const mergedTokens = [];
+  const mergedPositions = [];
+
+  let rangeIndex = 0;
+  let currentRange = ranges[rangeIndex];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const pos = positions[i];
+
+    while (currentRange && pos.start >= currentRange.end) {
+      currentRange = ranges[++rangeIndex];
+    }
+
+    if (
+      currentRange &&
+      pos.start >= currentRange.start &&
+      pos.end   <= currentRange.end
+    ) {
+      if (
+        !mergedTokens.length ||
+        mergedTokens[mergedTokens.length - 1] !== currentRange.name
+      ) {
+        mergedTokens.push(currentRange.name);
+        mergedPositions.push({
+          word: currentRange.name,
+          start: currentRange.start,
+          end: currentRange.end
+        });
+      }
+
+      while (
+        i + 1 < tokens.length &&
+        positions[i + 1].end <= currentRange.end
+      ) {
+        i++;
+      }
+    } else {
+      mergedTokens.push(tokens[i]);
+      mergedPositions.push(pos);
+    }
+  }
+
+  return { tokens: mergedTokens, positions: mergedPositions };
+}
+
+// ========= 共通ユーティリティ =========
+
+function hasCJK(str) {
+  return /[\u3400-\u9FFF]/.test(str);
+}
+
+// Google 無料翻訳
+async function googleTranslate(text) {
+  const url =
+    "https://translate.googleapis.com/translate_a/single" +
+    "?client=gtx&sl=zh&tl=ja&dt=t&q=" +
+    encodeURIComponent(text);
+
+  const res = await fetch(url);
+  const data = await res.json();
+  return data[0].map(item => item[0]).join("");
+}
+
+// 単語ごと翻訳
+async function translateWordsToJa(words) {
+  const uniq = Array.from(new Set(words))
+    .filter(w => hasCJK(w))
+    .filter(w => !BASE_DICT[w])
+    .filter(w => !wordJaDict[w]);
+
+  for (const w of uniq) {
+    try {
+      const ja = await googleTranslate(w);
+      wordJaDict[w] = ja;
+      localStorage.setItem('cnWordJaDict', JSON.stringify(wordJaDict));
+    } catch (e) {
+      console.error("単語翻訳エラー:", w, e);
+    }
+  }
+}
+
+// ハイライトリセット
+function resetHighlights() {
+  tokenPositions.forEach(t => {
+    if (t.dom) t.dom.style.background = "#fff";
+  });
+}
+
+// ========= 音声制御 =========
+
+function speakCurrentToken() {
+  if (!speaking) return;
+
+  if (currentIndex >= speakTokens.length) {
+    speaking = false;
+    resetHighlights();
+    return;
+  }
+
+  const t = speakTokens[currentIndex];
+
+  resetHighlights();
+  t.dom.style.background = "yellow";
+
+  const utt = new SpeechSynthesisUtterance(t.word);
+  utt.lang = "zh-CN";
+  utt.rate = speechRate;
+
+  utt.onend = () => {
+    if (!speaking) return;
+    currentIndex++;
+    if (!paused) {
+      speakCurrentToken();
+    }
+  };
+
+  window.speechSynthesis.speak(utt);
+}
+
+speakBtn.addEventListener('click', () => {
+  if (!tokenPositions.length) {
+    alert("先に解析してください。");
+    return;
+  }
+  if (!("speechSynthesis" in window)) {
+    alert("このブラウザは音声読み上げに対応していません。");
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  resetHighlights();
+
+  speakTokens = tokenPositions.filter(t => hasCJK(t.word));
+  if (!speakTokens.length) return;
+
+  speaking = true;
+  paused   = false;
+  currentIndex = 0;
+
+  speakCurrentToken();
+});
+
+stopBtn.addEventListener('click', () => {
+  speaking = false;
+  paused = false;
+  currentIndex = 0;
+  window.speechSynthesis.cancel();
+  resetHighlights();
+});
+
+pauseBtn.addEventListener('click', () => {
+  if (!("speechSynthesis" in window)) return;
+  if (!speaking) return;
+
+  if (!paused) {
+    window.speechSynthesis.pause();
+    paused = true;
+    pauseBtn.textContent = "再開";
+  } else {
+    window.speechSynthesis.resume();
+    paused = false;
+    pauseBtn.textContent = "一時停止";
+  }
+});
+
+speedBtn.addEventListener('click', () => {
+  // 0.9倍 ↔ 2.0倍
+  if (speechRate < 1.2) {
+    speechRate = 2.0;
+    speedBtn.textContent = "等速";
+  } else {
+    speechRate = 0.9;
+    speedBtn.textContent = "2倍速";
+  }
+});
+
+// ========= 解析本体 =========
+
+async function runAnalyze(optionalText) {
+  resultDiv.innerHTML = "";
+  jpFullEl.textContent = "";
+  statusEl.textContent = "解析中…";
+
+  resetHighlights();
+  tokenPositions = [];
+  speaking = false;
+  paused   = false;
+  pauseBtn.textContent = "一時停止";
+  window.speechSynthesis.cancel();
+
+  const text = (optionalText !== undefined) ? optionalText : (srcEl.value || "");
+  if (!text.trim()) {
+    statusEl.textContent = "テキストが空です。中国語の本文を貼ってください。";
+    return;
+  }
+
+  if (!window.Segmentit || !Segmentit.Segment) {
+    alert("segmentit が読み込めていません。");
+    statusEl.textContent = "segmentit が読み込めていません。";
+    return;
+  }
+  if (!window.pinyinPro || !window.pinyinPro.pinyin) {
+    alert("pinyin-pro が読み込めていません。");
+    statusEl.textContent = "pinyin-pro が読み込めていません。";
+    return;
+  }
+
+  const { pinyin } = window.pinyinPro;
+
+  // 1) segmentit 用に名前の前後に空白を入れてから分かち書き
+  const segment = Segmentit.useDefault(new Segmentit.Segment());
+  let workText = text;
+  for (const name of Object.keys(BASE_DICT)) {
+    const re = new RegExp(name, "g");
+    workText = workText.replace(re, " " + name + " ");
+  }
+  const segObjs = segment.doSegment(workText);
+
+  const rawTokens = [];
+  const rawPositions = [];
+  let cursor = 0;
+
+  for (const s of segObjs) {
+    const w = s.w || "";
+    if (!w) continue;
+
+    const idx = text.indexOf(w, cursor);
+    if (idx === -1) continue;
+
+    const start = idx;
+    const end   = idx + w.length;
+    cursor = end;
+
+    if (/^\s+$/.test(w)) continue;
+
+    rawTokens.push(w);
+    rawPositions.push({ word: w, start, end });
+  }
+
+  // 2) 固有名詞まとめ（テキスト上の範囲で判定）
+  const merged = mergeNamesByRange(text, rawTokens, rawPositions);
+  const tokens = merged.tokens;
+  const positions = merged.positions;
+
+  // 3) 単語ごとの日本語
+  statusEl.textContent = "単語の意味を取得中（Google翻訳）…";
+  await translateWordsToJa(tokens);
+
+  // 4) 全文翻訳
+  statusEl.textContent = "全文を翻訳中（Google）…";
+  try {
+    let ja = await googleTranslate(text);
+
+    // 改行を詰める
+    ja = ja.replace(/\n{2,}/g, "\n");
+
+    // 固有名詞の表記ゆれ修正
+    ja = ja.replace(/クロード/g, "クラウド");
+    ja = ja.replace(/サフィロス/g, "セフィロス");
+    ja = ja.replace(/艾瑞丝/g, "エアリス");
+    ja = ja.replace(/蒂法/g, "ティファ");
+
+    // 丁寧語 → 常体（長い形から先に置換）
+    ja = ja.replace(/していました/g, "していた");
+    ja = ja.replace(/しています/g, "している");
+    ja = ja.replace(/しました/g, "した");
+    ja = ja.replace(/します/g, "する");
+
+    ja = ja.replace(/いました/g, "いた");
+    ja = ja.replace(/います/g, "いる");
+
+    ja = ja.replace(/されました/g, "された");
+    ja = ja.replace(/されます/g, "される");
+
+    ja = ja.replace(/できました/g, "できた");
+    ja = ja.replace(/できます/g, "できる");
+    ja = ja.replace(/なりました/g, "なった");
+    ja = ja.replace(/なります/g, "なる");
+    ja = ja.replace(/ません/g, "ない");
+
+    ja = ja.replace(/でした/g, "だった");
+    ja = ja.replace(/です/g, "だ");
+
+    jpFullEl.textContent = ja;
+  } catch (e) {
+    console.error(e);
+    jpFullEl.textContent = "翻訳中にエラーが発生しました。";
+  }
+
+  // 5) 単語カード描画 ＋ クリックでその位置から再生
+  resultDiv.innerHTML = "";
+  tokenPositions = [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const w = tokens[i];
+    const pos = positions[i];
+
+    let pin = "";
+    let mean = "";
+
+    if (BASE_DICT[w]) {
+      pin  = BASE_DICT[w].pinyin;
+      mean = BASE_DICT[w].meaning;
+    } else {
+      pin  = pinyin(w, { toneType: "pinyin" });
+      mean = wordJaDict[w] || "";
+    }
+
+    const div = document.createElement("div");
+    div.className = "word";
+    div.innerHTML =
+      `<div>${w}</div>
+       <div class="pinyin">${pin}</div>
+       <div class="mean">${mean}</div>`;
+
+    // この単語オブジェクトを作成して tokenPositions に入れる
+    const tokenObj = {
+      word: w,
+      start: pos.start,
+      end: pos.end,
+      dom: div
+    };
+    tokenPositions.push(tokenObj);
+
+    // ★ クリックした単語から再生・ハイライト
+    div.addEventListener('click', () => {
+      if (!('speechSynthesis' in window)) return;
+      if (!tokenPositions.length) return;
+
+      // いったん停止＆ハイライト解除
+      window.speechSynthesis.cancel();
+      resetHighlights();
+
+      // 読み上げ対象（漢字を含む単語）のリストを作り直す
+      speakTokens = tokenPositions.filter(t => hasCJK(t.word));
+      if (!speakTokens.length) return;
+
+      // この単語が speakTokens の何番目かを調べる
+      let idx = speakTokens.indexOf(tokenObj);
+
+      // 漢字を含まないカードだった場合は、この位置以降で最初の漢字カードを探す
+      if (idx === -1) {
+        idx = speakTokens.findIndex(t => t.start >= tokenObj.start);
+      }
+      if (idx === -1) return;
+
+      speaking = true;
+      paused = false;
+      pauseBtn.textContent = "一時停止";
+      currentIndex = idx;
+
+      speakCurrentToken();
+    });
+
+    resultDiv.appendChild(div);
+  }
+
+  statusEl.textContent = "解析と翻訳が完了しました。音声ボタンまたは単語クリックで再生できます。";
+}
+
+btn.addEventListener('click', () => {
+  runAnalyze();
+});
+
+// ========= AO3 読み込み =========
+
+async function loadAo3AndAnalyze() {
+  const url = (ao3UrlInput.value || "").trim();
+  if (!url) {
+    alert("AO3のURLを入力してください。");
+    return;
+  }
+  if (!/^https?:\/\/archiveofourown\.org\//.test(url)) {
+    alert("archiveofourown.org の作品ページURLを入力してください。");
+    return;
+  }
+
+  statusEl.textContent = "AO3から本文を読み込み中…";
+
+  try {
+    const apiUrl =
+      "https://api.allorigins.win/get?charset=UTF-8&url=" +
+      encodeURIComponent(url);
+    const res = await fetch(apiUrl);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+
+    const data = await res.json();
+    const html = data.contents;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const ps = doc.querySelectorAll(".userstuff p");
+
+    let text = "";
+    ps.forEach((p) => {
+      const t = p.textContent.trim();
+      if (t) {
+        if (text) text += "\n\n";
+        text += t;
+      }
+    });
+
+    if (!text) {
+      alert(".userstuff p の本文が見つかりませんでした。");
+      statusEl.textContent = "AO3本文が見つかりませんでした。";
+      return;
+    }
+
+    srcEl.value = text;
+    statusEl.textContent = "AO3本文を読み込みました。解析中…";
+
+    await runAnalyze(text);
+  } catch (e) {
+    console.error(e);
+    alert("AO3の読み込みに失敗しました。コンソールを確認してください。");
+    statusEl.textContent = "AO3の読み込みに失敗しました。";
+  }
+}
+
+loadAo3Btn.addEventListener('click', loadAo3AndAnalyze);
+</script>
+
+</body>
+</html>
