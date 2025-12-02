@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>中国語 一文ずつビュー</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- フォントはお好みで変更可 -->
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 16px;
+      background: #f9fafb;
+      color: #111827;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0 0 8px;
+    }
+
+    .section {
+      margin-bottom: 16px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 8px;
+      font-size: 14px;
+      box-sizing: border-box;
+      border-radius: 4px;
+      border: 1px solid #d1d5db;
+      resize: vertical;
+    }
+
+    .button-row {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 6px 10px;
+      font-size: 13px;
+      border-radius: 4px;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #f3f4f6;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .sentence-box {
+      padding: 12px;
+      border-radius: 6px;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+    }
+
+    .label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 2px;
+    }
+
+    .chinese-text {
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+
+    .pinyin-text {
+      font-size: 14px;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+
+    .jp-text {
+      font-size: 14px;
+      color: #111827;
+      margin-bottom: 4px;
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
+    .nav-row {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .word-cards {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .word-card {
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+      background: #ffffff;
+      padding: 4px 6px;
+      font-size: 12px;
+      min-width: 80px;
+    }
+
+    .word-card .hanzi {
+      font-size: 14px;
+      margin-bottom: 2px;
+    }
+
+    .word-card .pinyin {
+      color: #374151;
+      margin-bottom: 2px;
+    }
+
+    .word-card .mean {
+      color: #4b5563;
+    }
+  </style>
+
+  <!-- ライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.19.3/dist/pinyin-pro.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/segmentit@2.0.3/dist/segmentit.min.js"></script>
+</head>
+<body>
+  <h1>中国語 一文ずつビュー</h1>
+
+  <div class="section">
+    <div class="label">中国語の文章を貼り付け</div>
+    <textarea id="sourceInput" placeholder="ここに中国語の本文を貼り付けてください"></textarea>
+    <div class="button-row">
+      <button id="pasteBtn">ペースト</button>
+      <button id="clearBtn">全消し</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sentence-box">
+      <div class="label">現在の文（中国語）</div>
+      <div id="cnSentence" class="chinese-text">（ここに文が表示されます）</div>
+
+      <div class="label">ピンイン</div>
+      <div id="pinyinSentence" class="pinyin-text">-</div>
+
+      <div class="label">日本語訳（Google翻訳）</div>
+      <div id="jpSentence" class="jp-text">-</div>
+
+      <div class="nav-row">
+        <button id="prevBtn">◀ 前の文</button>
+        <button id="nextBtn">▶ 次の文</button>
+        <span id="counter">0 / 0</span>
+        <span id="loadingStatus" class="status-text"></span>
+      </div>
+
+      <div class="label" style="margin-top:10px;">単語カード</div>
+      <div id="wordCards" class="word-cards">
+        <!-- 単語カード -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== ライブラリ準備 =====
+    const segmentit = window.segmentit;
+    const { useDefault } = segmentit;
+    const segmenter = useDefault();
+
+    // ===== DOM 取得 =====
+    const sourceInput    = document.getElementById("sourceInput");
+    const pasteBtn       = document.getElementById("pasteBtn");
+    const clearBtn       = document.getElementById("clearBtn");
+    const cnSentenceEl   = document.getElementById("cnSentence");
+    const pinyinSentenceEl = document.getElementById("pinyinSentence");
+    const jpSentenceEl   = document.getElementById("jpSentence");
+    const wordCardsEl    = document.getElementById("wordCards");
+    const prevBtn        = document.getElementById("prevBtn");
+    const nextBtn        = document.getElementById("nextBtn");
+    const counterEl      = document.getElementById("counter");
+    const loadingStatusEl= document.getElementById("loadingStatus");
+
+    // ===== 状態 =====
+    let sentences = [];
+    let currentIndex = 0;
+    let isLoading = false;
+
+    // ===== ユーティリティ =====
+
+    // テキストを文ごとに分割（。！？ などで区切る）
+    function splitToSentences(text) {
+      if (!text) return [];
+      // 改行や空白をある程度整理
+      const normalized = text
+        .replace(/\r\n/g, "\n")
+        .replace(/\s+/g, "")
+        .trim();
+
+      if (!normalized) return [];
+
+      // 末尾の句読点で区切る。肯定的に後読みを使用（対応していない古いブラウザでは要注意）
+      const rawParts = normalized.split(/(?<=[。！？!?])/);
+      const result = rawParts
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+
+      return result;
+    }
+
+    async function translateToJapanese(text) {
+      const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh&tl=ja&dt=t&q=" +
+        encodeURIComponent(text);
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status);
+      }
+      const data = await res.json();
+      let jp = "";
+      if (Array.isArray(data[0])) {
+        data[0].forEach(part => {
+          if (part[0]) jp += part[0];
+        });
+      }
+      return jp || "(翻訳結果なし)";
+    }
+
+    function updateCounter() {
+      counterEl.textContent = (sentences.length === 0)
+        ? "0 / 0"
+        : (currentIndex + 1) + " / " + sentences.length;
+    }
+
+    function setLoading(flag, message) {
+      isLoading = flag;
+      loadingStatusEl.textContent = flag ? (message || "読み込み中…") : "";
+      prevBtn.disabled = flag || (currentIndex <= 0);
+      nextBtn.disabled = flag || (sentences.length === 0 || currentIndex >= sentences.length - 1);
+    }
+
+    // 単語カード用データ作成
+    async function buildWordData(sentence) {
+      const segs = segmenter.doSegment(sentence, { simple: true });
+      const words = [];
+      const seen = new Set();
+
+      for (const seg of segs) {
+        const w = String(seg).trim();
+        if (!w) continue;
+        // 漢字が含まれていないものは除外
+        if (!/[\u4e00-\u9fff]/.test(w)) continue;
+        if (seen.has(w)) continue;
+        seen.add(w);
+        words.push(w);
+      }
+
+      // 各単語について、ピンインと翻訳を取得
+      const promises = words.map(async (w) => {
+        const py = window.pinyinPro.pinyin(w, {
+          toneType: "pinyin",
+          type: "string"
+        });
+        let jp = "";
+        try {
+          jp = await translateToJapanese(w);
+        } catch (e) {
+          jp = "(翻訳エラー)";
+        }
+        return { word: w, pinyin: py, jp };
+      });
+
+      return Promise.all(promises);
+    }
+
+    function renderWordCards(wordData) {
+      wordCardsEl.innerHTML = "";
+      if (!wordData || wordData.length === 0) {
+        wordCardsEl.textContent = "（単語カードなし）";
+        return;
+      }
+      for (const item of wordData) {
+        const div = document.createElement("div");
+        div.className = "word-card";
+
+        const h = document.createElement("div");
+        h.className = "hanzi";
+        h.textContent = item.word;
+        div.appendChild(h);
+
+        const p = document.createElement("div");
+        p.className = "pinyin";
+        p.textContent = item.pinyin;
+        div.appendChild(p);
+
+        const m = document.createElement("div");
+        m.className = "mean";
+        m.textContent = item.jp;
+        div.appendChild(m);
+
+        wordCardsEl.appendChild(div);
+      }
+    }
+
+    // 指定番号の文を表示
+    async function showSentence(index) {
+      if (index < 0 || index >= sentences.length) return;
+
+      currentIndex = index;
+      const sentence = sentences[index];
+
+      cnSentenceEl.textContent = sentence || "（文がありません）";
+      pinyinSentenceEl.textContent = "-";
+      jpSentenceEl.textContent = "-";
+      wordCardsEl.textContent = "単語カードを取得中…";
+      updateCounter();
+
+      if (!sentence) return;
+
+      setLoading(true, "翻訳・単語カード取得中…");
+      try {
+        // 文全体のピンイン
+        const py = window.pinyinPro.pinyin(sentence, {
+          toneType: "pinyin",
+          type: "string",
+          nonZh: "consecutive"
+        });
+        pinyinSentenceEl.textContent = py;
+
+        // 翻訳と単語カードを並列取得
+        const [jp, wordData] = await Promise.all([
+          translateToJapanese(sentence),
+          buildWordData(sentence)
+        ]);
+
+        jpSentenceEl.textContent = jp;
+        renderWordCards(wordData);
+      } catch (e) {
+        jpSentenceEl.textContent = "翻訳エラー：" + e.message;
+        wordCardsEl.textContent = "単語カード取得中にエラーが発生しました。";
+      } finally {
+        setLoading(false, "");
+      }
+    }
+
+    // テキストエリアの内容から文リストを作る
+    function rebuildSentencesFromInput() {
+      const text = sourceInput.value;
+      sentences = splitToSentences(text);
+      currentIndex = 0;
+      if (sentences.length === 0) {
+        cnSentenceEl.textContent = "（文が見つかりませんでした）";
+        pinyinSentenceEl.textContent = "-";
+        jpSentenceEl.textContent = "-";
+        wordCardsEl.textContent = "";
+      } else {
+        showSentence(0);
+      }
+      updateCounter();
+    }
+
+    // ===== イベント =====
+
+    // ペーストボタン：クリップボードから読み込んで文を再生成
+    pasteBtn.addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (!text) {
+          alert("クリップボードにテキストがありません。");
+          return;
+        }
+        sourceInput.value = text;
+        rebuildSentencesFromInput();
+      } catch (e) {
+        alert("クリップボードから読み取れませんでした：" + e.message);
+      }
+    });
+
+    // 全消し
+    clearBtn.addEventListener("click", () => {
+      sourceInput.value = "";
+      sentences = [];
+      currentIndex = 0;
+      cnSentenceEl.textContent = "（ここに文が表示されます）";
+      pinyinSentenceEl.textContent = "-";
+      jpSentenceEl.textContent = "-";
+      wordCardsEl.textContent = "";
+      updateCounter();
+    });
+
+    // テキストエリアから直接貼り付けた場合も、フォーカスが外れたタイミングで文を再生成
+    sourceInput.addEventListener("blur", () => {
+      rebuildSentencesFromInput();
+    });
+
+    // ナビゲーション
+    prevBtn.addEventListener("click", () => {
+      if (isLoading) return;
+      if (currentIndex > 0) {
+        showSentence(currentIndex - 1);
+      }
+    });
+
+    nextBtn.addEventListener("click", () => {
+      if (isLoading) return;
+      // 文リストがまだ作られていない場合は生成
+      if (sentences.length === 0) {
+        rebuildSentencesFromInput();
+        return;
+      }
+      if (currentIndex < sentences.length - 1) {
+        showSentence(currentIndex + 1);
+      }
+    });
+
+    // 初期表示
+    updateCounter();
+  </script>
+</body>
+</html>
