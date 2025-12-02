@@ -216,9 +216,19 @@
   </div>
 
 <script>
+  // 固定辞書：ここに好きな単語を追加していく
+  const CUSTOM_DICT = {
+    "克劳德": { pinyin: "kè láo dé", ja: "クラウド" },
+    "萨菲罗斯": { pinyin: "sà fēi luó sī", ja: "セフィロス" },
+    "宝条": { pinyin: "bǎo tiáo", ja: "宝条" },
+    "艾瑞丝": { pinyin: "ài ruì sī", ja: "エアリス" },
+    "蒂法": { pinyin: "dì fǎ", ja: "ティファ" }
+    // 例: "神罗": { pinyin: "shén luó", ja: "神羅カンパニー" },
+  };
+
   const hasPinyinPro = !!(window.pinyinPro && typeof window.pinyinPro.pinyin === "function");
 
-  // ★ 別ページと同じ初期化方法にする
+  // segmentit 初期化（別ツールと同じ方法）
   let segmenter = null;
   if (window.Segmentit && window.Segmentit.Segment && typeof window.Segmentit.useDefault === "function") {
     segmenter = window.Segmentit.useDefault(new window.Segmentit.Segment());
@@ -268,12 +278,11 @@
     return data[0].map(x => x[0]).join("");
   }
 
-  // 単語カード生成
+  // 単語カード生成（カスタム辞書優先）
   async function buildWordCards(sentence) {
     let words = [];
 
     if (segmenter) {
-      // ★ 別ページと同じやり方：オブジェクト配列から s.w を取り出す
       const segObjs = segmenter.doSegment(sentence);
       const segs = segObjs.map(o => o.w || "").filter(Boolean);
       words = [...new Set(segs.filter(w => /[\u4e00-\u9fff]/.test(w)))];
@@ -286,12 +295,22 @@
 
     const cards = [];
     for (let w of words) {
-      const py = hasPinyinPro
-        ? window.pinyinPro.pinyin(w, { toneType:"pinyin", type:"string" })
-        : "-";
-      let jp;
-      try { jp = await translate(w); }
-      catch { jp = "(翻訳エラー)"; }
+      let py, jp;
+
+      if (CUSTOM_DICT[w]) {
+        py = CUSTOM_DICT[w].pinyin;
+        jp = CUSTOM_DICT[w].ja;
+      } else {
+        py = hasPinyinPro
+          ? window.pinyinPro.pinyin(w, { toneType:"pinyin", type:"string" })
+          : "-";
+        try {
+          jp = await translate(w);
+        } catch (e) {
+          jp = "(翻訳エラー)";
+        }
+      }
+
       cards.push({ w, pinyin: py, jp });
     }
     return cards;
