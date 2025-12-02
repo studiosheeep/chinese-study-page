@@ -169,10 +169,10 @@
     }
   </style>
 
-  <!-- pinyin-pro（別ページと同じバージョン） -->
+  <!-- pinyin-pro -->
   <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.27.0/dist/index.min.js"></script>
 
-  <!-- segmentit UMD（別ページで使っているものと同じ） -->
+  <!-- segmentit UMD -->
   <script src="https://cdn.jsdelivr.net/npm/segmentit@2.0.3/dist/umd/segmentit.min.js"></script>
 </head>
 
@@ -216,9 +216,32 @@
   </div>
 
 <script>
+  // 固定辞書
+  const CUSTOM_DICT = {
+    "克劳德": { pinyin: "kè láo dé", ja: "クラウド" },
+    "萨菲罗斯": { pinyin: "sà fēi luó sī", ja: "セフィロス" },
+    "宝条": { pinyin: "bǎo tiáo", ja: "宝条" },
+    "艾瑞丝": { pinyin: "ài ruì sī", ja: "エアリス" },
+    "蒂法": { pinyin: "dì fǎ", ja: "ティファ" }
+  };
+
+// ---- 追加：外部辞書を読み込み ----
+function loadExternalDict() {
+  try {
+    const data = localStorage.getItem("customCnDict");
+    return data ? JSON.parse(data) : {};
+  } catch {
+    return {};
+  }
+}
+
+// sentence.html 起動時に外部辞書をマージ
+const externalDict = loadExternalDict();
+Object.assign(CUSTOM_DICT, externalDict);
+  
   const hasPinyinPro = !!(window.pinyinPro && typeof window.pinyinPro.pinyin === "function");
 
-  // ★ 別ページと同じ初期化方法にする
+  // segmentit 初期化
   let segmenter = null;
   if (window.Segmentit && window.Segmentit.Segment && typeof window.Segmentit.useDefault === "function") {
     segmenter = window.Segmentit.useDefault(new window.Segmentit.Segment());
@@ -268,15 +291,108 @@
     return data[0].map(x => x[0]).join("");
   }
 
+  // 文字列に CJK を含むか
+  function hasCJK(str) {
+    return /[\u3400-\u9FFF]/.test(str);
+  }
+
+  // カスタム名の範囲でトークンをマージ
+  function mergeNamesByRange(text, tokens, positions) {
+    const ranges = [];
+    const names = Object.keys(CUSTOM_DICT);
+
+    for (const name of names) {
+      let idx = text.indexOf(name);
+      while (idx !== -1) {
+        ranges.push({ name, start: idx, end: idx + name.length });
+        idx = text.indexOf(name, idx + 1);
+      }
+    }
+
+    if (!ranges.length) {
+      return { tokens, positions };
+    }
+
+    ranges.sort((a, b) => a.start - b.start);
+
+    const mergedTokens = [];
+    const mergedPositions = [];
+
+    let rangeIndex = 0;
+    let currentRange = ranges[rangeIndex];
+
+    for (let i = 0; i < tokens.length; i++) {
+      const pos = positions[i];
+
+      // 現在のトークンの開始位置が range を越えたら次の range へ
+      while (currentRange && pos.start >= currentRange.end) {
+        currentRange = ranges[++rangeIndex];
+      }
+
+      if (
+        currentRange &&
+        pos.start >= currentRange.start &&
+        pos.end   <= currentRange.end
+      ) {
+        // この range の最初のトークンなら name を追加
+        if (
+          !mergedTokens.length ||
+          mergedTokens[mergedTokens.length - 1] !== currentRange.name
+        ) {
+          mergedTokens.push(currentRange.name);
+          mergedPositions.push({
+            start: currentRange.start,
+            end: currentRange.end
+          });
+        }
+
+        // 同じ range に収まる次のトークンをまとめてスキップ
+        while (
+          i + 1 < tokens.length &&
+          positions[i + 1].end <= currentRange.end
+        ) {
+          i++;
+        }
+      } else {
+        mergedTokens.push(tokens[i]);
+        mergedPositions.push(pos);
+      }
+    }
+
+    return { tokens: mergedTokens, positions: mergedPositions };
+  }
+
   // 単語カード生成
   async function buildWordCards(sentence) {
     let words = [];
 
     if (segmenter) {
-      // ★ 別ページと同じやり方：オブジェクト配列から s.w を取り出す
       const segObjs = segmenter.doSegment(sentence);
-      const segs = segObjs.map(o => o.w || "").filter(Boolean);
-      words = [...new Set(segs.filter(w => /[\u4e00-\u9fff]/.test(w)))];
+      const rawTokens = [];
+      const rawPositions = [];
+      let cursor = 0;
+
+      for (const s of segObjs) {
+        const w = s.w || "";
+        if (!w) continue;
+
+        const idx = sentence.indexOf(w, cursor);
+        if (idx === -1) continue;
+
+        const start = idx;
+        const end   = idx + w.length;
+        cursor = end;
+
+        if (/^\s+$/.test(w)) continue;
+
+        rawTokens.push(w);
+        rawPositions.push({ start, end });
+      }
+
+      const merged = mergeNamesByRange(sentence, rawTokens, rawPositions);
+      const tokens = merged.tokens;
+
+      words = [...new Set(tokens.filter(hasCJK))];
     } else {
       const blocks = sentence.match(/[\u4e00-\u9fff]+/g) || [];
       const set = new Set();
@@ -286,12 +402,22 @@
 
     const cards = [];
     for (let w of words) {
-      const py = hasPinyinPro
-        ? window.pinyinPro.pinyin(w, { toneType:"pinyin", type:"string" })
-        : "-";
-      let jp;
-      try { jp = await translate(w); }
-      catch { jp = "(翻訳エラー)"; }
+      let py, jp;
+
+      if (CUSTOM_DICT[w]) {
+        py = CUSTOM_DICT[w].pinyin;
+        jp = CUSTOM_DICT[w].ja;
+      } else {
+        py = hasPinyinPro
+          ? window.pinyinPro.pinyin(w, { toneType:"pinyin", type:"string" })
+          : "-";
+        try {
+          jp = await translate(w);
+        } catch (e) {
+          jp = "(翻訳エラー)";
+        }
+      }
+
       cards.push({ w, pinyin: py, jp });
     }
     return cards;
