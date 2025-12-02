@@ -68,11 +68,11 @@
     .word-card .mean { color: #4b5563; }
   </style>
 
-  <!-- ★ pinyin-pro：公式推奨 CDN（dist/index.js） -->
+  <!-- pinyin-pro：ブラウザ用 -->
   <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.18.2/dist/index.js"></script>
 
-  <!-- ★ segmentit -->
-  <script src="https://cdn.jsdelivr.net/npm/segmentit@1.0.3/dist/segmentit.min.js"></script>
+  <!-- segmentit：ブラウザ用 UMD -->
+  <script src="https://cdn.jsdelivr.net/npm/segmentit@2.0.3/dist/segmentit.browser.js"></script>
 </head>
 
 <body>
@@ -112,9 +112,13 @@
   const hasPinyinPro = !!(window.pinyinPro && typeof window.pinyinPro.pinyin === "function");
 
   let segmenter = null;
-  if (window.segmentit && typeof window.segmentit.useDefault === "function") {
-    segmenter = window.segmentit.useDefault();
-  }
+  (function initSegmenter() {
+    // segmentit.browser.js のグローバルは segmentit か Segmentit のどちらか
+    const lib = window.segmentit || window.Segmentit;
+    if (lib && typeof lib.useDefault === "function") {
+      segmenter = lib.useDefault();
+    }
+  })();
 
   const sourceInput   = document.getElementById("sourceInput");
   const pasteBtn      = document.getElementById("pasteBtn");
@@ -155,11 +159,13 @@
     return data[0].map(x => x[0]).join("");
   }
 
+  // 単語カード生成：segmentit があれば「単語ごと」、なければ漢字1文字ごと
   async function buildWordCards(sentence) {
     let words = [];
 
     if (segmenter) {
       const segs = segmenter.doSegment(sentence, { simple: true });
+      // 中国語文字を含むものだけ、重複除去
       words = [...new Set(segs.filter(w => /[\u4e00-\u9fff]/.test(w)))];
     } else {
       const blocks = sentence.match(/[\u4e00-\u9fff]+/g) || [];
