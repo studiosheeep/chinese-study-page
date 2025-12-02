@@ -68,10 +68,10 @@
     .word-card .mean { color: #4b5563; }
   </style>
 
-  <!-- pinyin-pro -->
-  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.19.3/dist/pinyin-pro.min.js"></script>
+  <!-- ★ pinyin-pro（UMD ファイル） -->
+  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.19.3/dist/pinyin-pro.umd.min.js"></script>
 
-  <!-- segmentit（読めなかった場合はフォールバック） -->
+  <!-- ★ segmentit -->
   <script src="https://cdn.jsdelivr.net/npm/segmentit@1.0.3/dist/segmentit.min.js"></script>
 </head>
 
@@ -108,7 +108,9 @@
   </div>
 
 <script>
-  // segmentit が読み込めた場合のみ使う
+  // ===== ライブラリの存在チェック =====
+  const hasPinyinPro = !!(window.pinyinPro && typeof window.pinyinPro.pinyin === "function");
+
   let segmenter = null;
   if (window.segmentit && typeof window.segmentit.useDefault === "function") {
     segmenter = window.segmentit.useDefault();
@@ -137,8 +139,8 @@
   function splitSentences(text) {
     if (!text) return [];
     return text
-      .replace(/\r\n/g,"\n")
-      .replace(/\s+/g,"")
+      .replace(/\r\n/g, "\n")
+      .replace(/\s+/g, "")
       .split(/(?<=[。！？!?])/)
       .map(s => s.trim())
       .filter(Boolean);
@@ -157,11 +159,9 @@
     let words = [];
 
     if (segmenter) {
-      // segmentit が使える場合
       const segs = segmenter.doSegment(sentence, { simple: true });
       words = [...new Set(segs.filter(w => /[\u4e00-\u9fff]/.test(w)))];
     } else {
-      // フォールバック：漢字を1文字ずつユニークに
       const blocks = sentence.match(/[\u4e00-\u9fff]+/g) || [];
       const set = new Set();
       blocks.forEach(b => { for (const ch of b) set.add(ch); });
@@ -170,11 +170,13 @@
 
     const cards = [];
     for (let w of words) {
-      const pinyin = window.pinyinPro.pinyin(w, { toneType:"pinyin", type:"string" });
+      const py = hasPinyinPro
+        ? window.pinyinPro.pinyin(w, { toneType:"pinyin", type:"string" })
+        : "-";
       let jp;
       try { jp = await translate(w); }
       catch { jp = "(翻訳エラー)"; }
-      cards.push({ w, pinyin, jp });
+      cards.push({ w, pinyin: py, jp });
     }
     return cards;
   }
@@ -186,14 +188,20 @@
     cnSentenceEl.textContent = s;
     pinyinSentenceEl.textContent = "";
     jpSentenceEl.textContent = "";
-    counterEl.textContent = `${index+1} / ${sentences.length}`;
+    counterEl.textContent = `${index + 1} / ${sentences.length}`;
     wordCardsEl.innerHTML = "";
 
     loading = true;
     statusEl.textContent = "読み込み中…";
 
     try {
-      const py = window.pinyinPro.pinyin(s, { toneType:"pinyin", type:"string", nonZh:"consecutive" });
+      const py = hasPinyinPro
+        ? window.pinyinPro.pinyin(s, {
+            toneType: "pinyin",
+            type: "string",
+            nonZh: "consecutive"
+          })
+        : "(pinyin-pro が読み込めていません)";
       const jp = await translate(s);
       const cards = await buildWordCards(s);
 
@@ -208,13 +216,14 @@
             <div class="mean">${c.jp}</div>
           </div>`;
       });
+    } catch (e) {
+      jpSentenceEl.textContent = "エラー：" + e.message;
     } finally {
       statusEl.textContent = "";
       loading = false;
     }
   }
 
-  // ペースト：貼るだけ（ローカル file:// だとブラウザ設定で使えないことがあります）
   pasteBtn.onclick = async () => {
     try {
       const text = await navigator.clipboard.readText();
@@ -243,8 +252,12 @@
     show(0);
   };
 
-  prevBtn.onclick = () => { if (!loading && index > 0) show(index - 1); };
-  nextBtn.onclick = () => { if (!loading && index < sentences.length - 1) show(index + 1); };
+  prevBtn.onclick = () => {
+    if (!loading && index > 0) show(index - 1);
+  };
+  nextBtn.onclick = () => {
+    if (!loading && index < sentences.length - 1) show(index + 1);
+  };
 </script>
 </body>
 </html>
