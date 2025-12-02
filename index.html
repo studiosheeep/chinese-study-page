@@ -169,11 +169,11 @@
     }
   </style>
 
-  <!-- pinyin-pro：ブラウザ用 -->
-  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.18.2/dist/index.js"></script>
+  <!-- pinyin-pro（別ページと同じバージョン） -->
+  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.27.0/dist/index.min.js"></script>
 
-  <!-- segmentit：v1 browser 用ビルド（単語分割に必須） -->
-  <script src="https://unpkg.com/segmentit@1.0.3/browser/segmentit.min.js"></script>
+  <!-- segmentit UMD（別ページで使っているものと同じ） -->
+  <script src="https://cdn.jsdelivr.net/npm/segmentit@2.0.3/dist/umd/segmentit.min.js"></script>
 </head>
 
 <body>
@@ -218,9 +218,10 @@
 <script>
   const hasPinyinPro = !!(window.pinyinPro && typeof window.pinyinPro.pinyin === "function");
 
+  // ★ 別ページと同じ初期化方法にする
   let segmenter = null;
-  if (window.segmentit && typeof window.segmentit.useDefault === "function") {
-    segmenter = window.segmentit.useDefault();
+  if (window.Segmentit && window.Segmentit.Segment && typeof window.Segmentit.useDefault === "function") {
+    segmenter = window.Segmentit.useDefault(new window.Segmentit.Segment());
   }
 
   const sourceInput   = document.getElementById("sourceInput");
@@ -245,7 +246,7 @@
   let loading = false;
 
   segStatusEl.textContent = segmenter
-    ? "単語分割: segmentit を使用中"
+    ? "単語分割: segmentit を使用中（単語ごとにカードを生成）"
     : "単語分割: segmentit が読み込めていないため漢字1文字ごと";
 
   function splitSentences(text) {
@@ -267,11 +268,14 @@
     return data[0].map(x => x[0]).join("");
   }
 
+  // 単語カード生成
   async function buildWordCards(sentence) {
     let words = [];
 
     if (segmenter) {
-      const segs = segmenter.doSegment(sentence, { simple: true });
+      // ★ 別ページと同じやり方：オブジェクト配列から s.w を取り出す
+      const segObjs = segmenter.doSegment(sentence);
+      const segs = segObjs.map(o => o.w || "").filter(Boolean);
       words = [...new Set(segs.filter(w => /[\u4e00-\u9fff]/.test(w)))];
     } else {
       const blocks = sentence.match(/[\u4e00-\u9fff]+/g) || [];
