@@ -136,6 +136,30 @@
     .word-card .pinyin { color: #374151; margin-bottom: 2px; }
     .word-card .mean { color: #4b5563; }
 
+    /* 単語登録フォーム */
+    .dict-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    .dict-form input {
+      padding: 4px 6px;
+      border-radius: 4px;
+      border: 1px solid #d1d5db;
+      font-size: 12px;
+    }
+    .dict-form input.dict-word   { width: 120px; }
+    .dict-form input.dict-pinyin { width: 160px; }
+    .dict-form input.dict-ja     { flex: 1 1 160px; }
+
+    #dictStatus {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
     @media (max-width: 480px) {
       .app { padding: 8px; }
       .app-inner { max-width: 100%; }
@@ -165,6 +189,19 @@
       .word-card {
         flex: 1 1 calc(50% - 6px);
         min-width: 0;
+      }
+
+      .dict-form {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .dict-form input.dict-word,
+      .dict-form input.dict-pinyin,
+      .dict-form input.dict-ja {
+        width: 100%;
+      }
+      .dict-form button {
+        align-self: flex-start;
       }
     }
   </style>
@@ -210,14 +247,26 @@
 
         <div class="label" style="margin-top:10px;">単語カード</div>
         <div id="wordCards" class="word-cards"></div>
-        <div id="segStatus" class="label" style="margin-top:6px;"></div>
+
+        <div class="label" style="margin-top:10px;">単語登録</div>
+        <div class="dict-form">
+          <input id="dictWord"   class="dict-word"   placeholder="漢字 例: 萨菲罗斯">
+          <input id="dictPinyin" class="dict-pinyin" placeholder="ピンイン 例: sà fēi luó sī">
+          <input id="dictJa"     class="dict-ja"     placeholder="日本語訳 例: セフィロス">
+          <button id="dictAddBtn">登録</button>
+        </div>
+        <div id="dictStatus"></div>
+
+        <div id="segStatus" class="label" style="margin-top:10px;"></div>
       </div>
     </div>
   </div>
 
 <script>
-  // 固定辞書
-  const CUSTOM_DICT = {
+  const STORAGE_KEY = "customCnDict";
+
+  // ベース辞書（コード埋め込み分）
+  const BASE_DICT = {
     "克劳德": { pinyin: "kè láo dé", ja: "クラウド" },
     "萨菲罗斯": { pinyin: "sà fēi luó sī", ja: "セフィロス" },
     "宝条": { pinyin: "bǎo tiáo", ja: "宝条" },
@@ -225,10 +274,20 @@
     "蒂法": { pinyin: "dì fǎ", ja: "ティファ" }
   };
 
-// sentence.html 起動時に外部辞書をマージ
-const externalDict = loadExternalDict();
-Object.assign(CUSTOM_DICT, externalDict);
-  
+  function loadUserDict() {
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      return data ? JSON.parse(data) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  let USER_DICT = loadUserDict();
+
+  // 実際に使う辞書（ベース＋ユーザー辞書）
+  const CUSTOM_DICT = { ...BASE_DICT, ...USER_DICT };
+
   const hasPinyinPro = !!(window.pinyinPro && typeof window.pinyinPro.pinyin === "function");
 
   // segmentit 初期化
@@ -253,6 +312,12 @@ Object.assign(CUSTOM_DICT, externalDict);
   const prevBtn       = document.getElementById("prevBtn");
   const nextBtn       = document.getElementById("nextBtn");
   const counterEl     = document.getElementById("counter");
+
+  const dictWordEl    = document.getElementById("dictWord");
+  const dictPinyinEl  = document.getElementById("dictPinyin");
+  const dictJaEl      = document.getElementById("dictJa");
+  const dictAddBtn    = document.getElementById("dictAddBtn");
+  const dictStatusEl  = document.getElementById("dictStatus");
 
   let sentences = [];
   let index = 0;
@@ -281,12 +346,11 @@ Object.assign(CUSTOM_DICT, externalDict);
     return data[0].map(x => x[0]).join("");
   }
 
-  // 文字列に CJK を含むか
   function hasCJK(str) {
     return /[\u3400-\u9FFF]/.test(str);
   }
 
-  // カスタム名の範囲でトークンをマージ
+  // 名前範囲でトークンをマージ
   function mergeNamesByRange(text, tokens, positions) {
     const ranges = [];
     const names = Object.keys(CUSTOM_DICT);
@@ -299,9 +363,7 @@ Object.assign(CUSTOM_DICT, externalDict);
       }
     }
 
-    if (!ranges.length) {
-      return { tokens, positions };
-    }
+    if (!ranges.length) return { tokens, positions };
 
     ranges.sort((a, b) => a.start - b.start);
 
@@ -314,7 +376,6 @@ Object.assign(CUSTOM_DICT, externalDict);
     for (let i = 0; i < tokens.length; i++) {
       const pos = positions[i];
 
-      // 現在のトークンの開始位置が range を越えたら次の range へ
       while (currentRange && pos.start >= currentRange.end) {
         currentRange = ranges[++rangeIndex];
       }
@@ -324,7 +385,6 @@ Object.assign(CUSTOM_DICT, externalDict);
         pos.start >= currentRange.start &&
         pos.end   <= currentRange.end
       ) {
-        // この range の最初のトークンなら name を追加
         if (
           !mergedTokens.length ||
           mergedTokens[mergedTokens.length - 1] !== currentRange.name
@@ -336,7 +396,6 @@ Object.assign(CUSTOM_DICT, externalDict);
           });
         }
 
-        // 同じ range に収まる次のトークンをまとめてスキップ
         while (
           i + 1 < tokens.length &&
           positions[i + 1].end <= currentRange.end
@@ -455,6 +514,34 @@ Object.assign(CUSTOM_DICT, externalDict);
       loading = false;
     }
   }
+
+  // 単語登録フォーム処理
+  dictAddBtn.onclick = () => {
+    const w = dictWordEl.value.trim();
+    const p = dictPinyinEl.value.trim();
+    const j = dictJaEl.value.trim();
+
+    if (!w || !p || !j) {
+      dictStatusEl.textContent = "漢字・ピンイン・日本語訳をすべて入力してください。";
+      return;
+    }
+
+    // USER_DICT と CUSTOM_DICT に反映
+    USER_DICT[w] = { pinyin: p, ja: j };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(USER_DICT));
+
+    CUSTOM_DICT[w] = { pinyin: p, ja: j };
+
+    dictStatusEl.textContent = `「${w}」を登録しました。`;
+    dictWordEl.value = "";
+    dictPinyinEl.value = "";
+    dictJaEl.value = "";
+
+    // 今表示中の文を再描画してカードに反映
+    if (sentences.length > 0) {
+      show(index);
+    }
+  };
 
   pasteBtn.onclick = async () => {
     try {
