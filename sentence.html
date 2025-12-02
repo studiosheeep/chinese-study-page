@@ -32,9 +32,7 @@
     }
     button:hover { background: #f3f4f6; }
     button:disabled { opacity: 0.5; cursor: default; }
-
     .button-row { display: flex; gap: 8px; margin: 8px 0; }
-
     .sentence-box {
       padding: 12px;
       border-radius: 6px;
@@ -46,12 +44,10 @@
     .chinese { font-size: 20px; margin-bottom: 4px; }
     .pinyin  { font-size: 14px; color: #374151; margin-bottom: 4px; }
     .jp      { font-size: 14px; }
-
     .nav-row {
       display: flex; gap: 8px; align-items: center;
       margin-top: 8px; font-size: 12px; color: #6b7280;
     }
-
     .word-cards {
       display: flex; flex-wrap: wrap;
       gap: 8px; margin-top: 12px;
@@ -69,9 +65,13 @@
     .word-card .mean { color: #4b5563; }
   </style>
 
+  <!-- pinyin-pro -->
   <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.19.3/dist/pinyin-pro.min.js"></script>
+
+  <!-- ★ segmentit 1.0.3（重要） -->
   <script src="https://cdn.jsdelivr.net/npm/segmentit@1.0.3/dist/segmentit.min.js"></script>
 </head>
+
 <body>
   <h1>中国語 一文ずつビュー</h1>
 
@@ -105,7 +105,7 @@
   </div>
 
 <script>
-  const segmenter = window.segmentit.useDefault();
+  const segmenter = window.segmentit.useDefault(); // これが動くのは v1 系だけ
 
   const sourceInput = document.getElementById("sourceInput");
   const pasteBtn = document.getElementById("pasteBtn");
@@ -173,56 +173,50 @@
     statusEl.textContent = "読み込み中…";
 
     try {
-      const py = window.pinyinPro.pinyin(s, {toneType:"pinyin", type:"string", nonZh:"consecutive"});
+      const py = window.pinyinPro.pinyin(s, {toneType:"pinyin", type:"string"});
       const jp = await translate(s);
       const cards = await buildWordCards(s);
 
       pinyinSentenceEl.textContent = py;
       jpSentenceEl.textContent = jp;
 
-      wordCardsEl.innerHTML = "";
-      for (const c of cards) {
+      cards.forEach(c=>{
         wordCardsEl.innerHTML += `
           <div class="word-card">
             <div class="hanzi">${c.w}</div>
             <div class="pinyin">${c.pinyin}</div>
             <div class="mean">${c.jp}</div>
-          </div>
-        `;
-      }
+          </div>`;
+      });
 
-    } catch(e) {
-      jpSentenceEl.textContent = "翻訳エラー：" + e.message;
     } finally {
       statusEl.textContent = "";
       loading = false;
     }
   }
 
-  // ペースト：貼るだけ
   pasteBtn.onclick = async () => {
     const text = await navigator.clipboard.readText();
     sourceInput.value = text;
   };
 
-  // 全消し
   clearBtn.onclick = () => {
     sourceInput.value = "";
     viewer.style.display = "none";
   };
 
-  // 翻訳開始
   translateBtn.onclick = () => {
     sentences = splitSentences(sourceInput.value);
-    if (sentences.length === 0) return alert("文章がありません");
-
+    if (sentences.length === 0) {
+      alert("文章がありません");
+      return;
+    }
     viewer.style.display = "block";
     show(0);
   };
 
   prevBtn.onclick = () => { if(!loading && index>0) show(index-1); };
   nextBtn.onclick = () => { if(!loading && index<sentences.length-1) show(index+1); };
-
 </script>
 </body>
 </html>
