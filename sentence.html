@@ -6,66 +6,210 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: system-ui, sans-serif;
-      margin: 16px;
-      background: #f9fafb;
+      margin: 0;
+      background: #f3f4f6;
       color: #111827;
     }
-    h1 { font-size: 18px; margin-bottom: 8px; }
+
+    /* 画面中央寄せコンテナ */
+    .app {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 16px;
+    }
+
+    .app-inner {
+      width: 100%;
+      max-width: 960px;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 0 0 12px;
+      text-align: left;
+    }
+
     textarea {
       width: 100%;
       min-height: 120px;
       padding: 8px;
       font-size: 14px;
       border: 1px solid #d1d5db;
-      border-radius: 4px;
+      border-radius: 6px;
       resize: vertical;
+      background: #ffffff;
     }
+
     button {
       padding: 6px 10px;
       font-size: 13px;
-      border-radius: 4px;
+      border-radius: 6px;
       border: 1px solid #d1d5db;
-      background: white;
+      background: #ffffff;
       cursor: pointer;
     }
-    button:hover { background: #f3f4f6; }
-    button:disabled { opacity: 0.5; cursor: default; }
-    .button-row { display: flex; gap: 8px; margin: 8px 0; }
+
+    button:hover {
+      background: #f3f4f6;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 8px 0 12px;
+    }
+
+    .button-row button {
+      /* モバイルで押しやすく */
+      min-width: 80px;
+    }
 
     .sentence-box {
       padding: 12px;
-      border-radius: 6px;
-      background: white;
+      border-radius: 8px;
+      background: #ffffff;
       border: 1px solid #e5e7eb;
-      margin-top: 12px;
+      box-shadow: 0 4px 6px rgba(15, 23, 42, 0.06);
+      margin-top: 4px;
     }
-    .label { font-size: 12px; color: #6b7280; margin-bottom: 2px; }
-    .chinese { font-size: 20px; margin-bottom: 4px; }
-    .pinyin  { font-size: 14px; color: #374151; margin-bottom: 4px; }
-    .jp      { font-size: 14px; }
+
+    .label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 2px;
+    }
+
+    .chinese {
+      font-size: 20px;
+      margin-bottom: 4px;
+      word-wrap: break-word;
+    }
+
+    .pinyin {
+      font-size: 14px;
+      color: #374151;
+      margin-bottom: 4px;
+      word-wrap: break-word;
+    }
+
+    .jp {
+      font-size: 14px;
+      margin-bottom: 4px;
+      word-wrap: break-word;
+    }
 
     .nav-row {
-      display: flex; gap: 8px; align-items: center;
-      margin-top: 8px; font-size: 12px; color: #6b7280;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .nav-row-left {
+      display: flex;
+      gap: 4px;
+      align-items: center;
     }
 
     .word-cards {
-      display: flex; flex-wrap: wrap;
-      gap: 8px; margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
     }
+
     .word-card {
       border: 1px solid #e5e7eb;
       padding: 4px 6px;
-      border-radius: 4px;
+      border-radius: 6px;
       font-size: 12px;
       min-width: 80px;
-      background: white;
+      background: #ffffff;
     }
-    .word-card .hanzi { font-size: 14px; }
-    .word-card .pinyin { color: #374151; }
-    .word-card .mean { color: #4b5563; }
+
+    .word-card .hanzi {
+      font-size: 14px;
+      margin-bottom: 2px;
+    }
+
+    .word-card .pinyin {
+      color: #374151;
+      margin-bottom: 2px;
+    }
+
+    .word-card .mean {
+      color: #4b5563;
+    }
+
+    /* ===== スマホ（iPhone SE 含む）向け ===== */
+    @media (max-width: 480px) {
+      .app {
+        padding: 8px;
+      }
+
+      .app-inner {
+        max-width: 100%;
+      }
+
+      h1 {
+        font-size: 18px;
+        text-align: center;
+        margin-bottom: 10px;
+      }
+
+      textarea {
+        font-size: 13px;
+        min-height: 100px;
+      }
+
+      button {
+        font-size: 12px;
+        padding: 6px 8px;
+      }
+
+      .button-row {
+        justify-content: flex-start;
+      }
+
+      .sentence-box {
+        padding: 10px;
+      }
+
+      .chinese {
+        font-size: 18px;
+      }
+
+      .pinyin, .jp {
+        font-size: 13px;
+      }
+
+      .word-cards {
+        gap: 6px;
+      }
+
+      /* カードは2列を基本にする */
+      .word-card {
+        flex: 1 1 calc(50% - 6px);
+        min-width: 0;
+      }
+    }
   </style>
 
   <!-- pinyin-pro：ブラウザ用 -->
@@ -76,44 +220,48 @@
 </head>
 
 <body>
-  <h1>中国語 一文ずつビュー</h1>
+  <div class="app">
+    <div class="app-inner">
+      <h1>中国語 一文ずつビュー</h1>
 
-  <textarea id="sourceInput" placeholder="ここに中国語を貼り付けてください"></textarea>
+      <textarea id="sourceInput" placeholder="ここに中国語を貼り付けてください"></textarea>
 
-  <div class="button-row">
-    <button id="pasteBtn">ペースト</button>
-    <button id="clearBtn">全消し</button>
-    <button id="translateBtn" style="background:#22c55e; color:white;">翻訳する</button>
-  </div>
+      <div class="button-row">
+        <button id="pasteBtn">ペースト</button>
+        <button id="clearBtn">全消し</button>
+        <button id="translateBtn" style="background:#22c55e; color:white; border-color:#16a34a;">翻訳する</button>
+      </div>
 
-  <div id="viewer" class="sentence-box" style="display:none;">
-    <div class="label">中国語</div>
-    <div id="cnSentence" class="chinese"></div>
+      <div id="viewer" class="sentence-box" style="display:none;">
+        <div class="label">中国語</div>
+        <div id="cnSentence" class="chinese"></div>
 
-    <div class="label">ピンイン</div>
-    <div id="pinyinSentence" class="pinyin"></div>
+        <div class="label">ピンイン</div>
+        <div id="pinyinSentence" class="pinyin"></div>
 
-    <div class="label">日本語訳</div>
-    <div id="jpSentence" class="jp"></div>
+        <div class="label">日本語訳</div>
+        <div id="jpSentence" class="jp"></div>
 
-    <div class="nav-row">
-      <button id="prevBtn">◀</button>
-      <button id="nextBtn">▶</button>
-      <span id="counter"></span>
-      <span id="status"></span>
+        <div class="nav-row">
+          <div class="nav-row-left">
+            <button id="prevBtn">◀</button>
+            <button id="nextBtn">▶</button>
+          </div>
+          <span id="counter"></span>
+          <span id="status"></span>
+        </div>
+
+        <div class="label" style="margin-top:10px;">単語カード</div>
+        <div id="wordCards" class="word-cards"></div>
+      </div>
     </div>
-
-    <div class="label" style="margin-top:10px;">単語カード</div>
-    <div id="wordCards" class="word-cards"></div>
   </div>
 
 <script>
-  // ===== ライブラリの存在チェック =====
   const hasPinyinPro = !!(window.pinyinPro && typeof window.pinyinPro.pinyin === "function");
 
   let segmenter = null;
   (function initSegmenter() {
-    // segmentit.browser.js のグローバルは segmentit か Segmentit のどちらか
     const lib = window.segmentit || window.Segmentit;
     if (lib && typeof lib.useDefault === "function") {
       segmenter = lib.useDefault();
@@ -159,13 +307,11 @@
     return data[0].map(x => x[0]).join("");
   }
 
-  // 単語カード生成：segmentit があれば「単語ごと」、なければ漢字1文字ごと
   async function buildWordCards(sentence) {
     let words = [];
 
     if (segmenter) {
       const segs = segmenter.doSegment(sentence, { simple: true });
-      // 中国語文字を含むものだけ、重複除去
       words = [...new Set(segs.filter(w => /[\u4e00-\u9fff]/.test(w)))];
     } else {
       const blocks = sentence.match(/[\u4e00-\u9fff]+/g) || [];
@@ -197,7 +343,7 @@
     counterEl.textContent = `${index + 1} / ${sentences.length}`;
     wordCardsEl.innerHTML = "";
 
-    loading = true;
+    loading = true    ;
     statusEl.textContent = "読み込み中…";
 
     try {
@@ -261,6 +407,7 @@
   prevBtn.onclick = () => {
     if (!loading && index > 0) show(index - 1);
   };
+
   nextBtn.onclick = () => {
     if (!loading && index < sentences.length - 1) show(index + 1);
   };
