@@ -33,6 +33,7 @@
     button:hover { background: #f3f4f6; }
     button:disabled { opacity: 0.5; cursor: default; }
     .button-row { display: flex; gap: 8px; margin: 8px 0; }
+
     .sentence-box {
       padding: 12px;
       border-radius: 6px;
@@ -44,10 +45,12 @@
     .chinese { font-size: 20px; margin-bottom: 4px; }
     .pinyin  { font-size: 14px; color: #374151; margin-bottom: 4px; }
     .jp      { font-size: 14px; }
+
     .nav-row {
       display: flex; gap: 8px; align-items: center;
       margin-top: 8px; font-size: 12px; color: #6b7280;
     }
+
     .word-cards {
       display: flex; flex-wrap: wrap;
       gap: 8px; margin-top: 12px;
@@ -68,7 +71,7 @@
   <!-- pinyin-pro -->
   <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.19.3/dist/pinyin-pro.min.js"></script>
 
-  <!-- ★ segmentit 1.0.3（重要） -->
+  <!-- segmentit（読めなかった場合はフォールバック） -->
   <script src="https://cdn.jsdelivr.net/npm/segmentit@1.0.3/dist/segmentit.min.js"></script>
 </head>
 
@@ -105,23 +108,27 @@
   </div>
 
 <script>
-  const segmenter = window.segmentit.useDefault(); // これが動くのは v1 系だけ
+  // segmentit が読み込めた場合のみ使う
+  let segmenter = null;
+  if (window.segmentit && typeof window.segmentit.useDefault === "function") {
+    segmenter = window.segmentit.useDefault();
+  }
 
-  const sourceInput = document.getElementById("sourceInput");
-  const pasteBtn = document.getElementById("pasteBtn");
-  const clearBtn = document.getElementById("clearBtn");
-  const translateBtn = document.getElementById("translateBtn");
+  const sourceInput   = document.getElementById("sourceInput");
+  const pasteBtn      = document.getElementById("pasteBtn");
+  const clearBtn      = document.getElementById("clearBtn");
+  const translateBtn  = document.getElementById("translateBtn");
 
-  const viewer = document.getElementById("viewer");
-  const cnSentenceEl = document.getElementById("cnSentence");
+  const viewer        = document.getElementById("viewer");
+  const cnSentenceEl  = document.getElementById("cnSentence");
   const pinyinSentenceEl = document.getElementById("pinyinSentence");
-  const jpSentenceEl = document.getElementById("jpSentence");
-  const wordCardsEl = document.getElementById("wordCards");
-  const statusEl = document.getElementById("status");
+  const jpSentenceEl  = document.getElementById("jpSentence");
+  const wordCardsEl   = document.getElementById("wordCards");
+  const statusEl      = document.getElementById("status");
 
-  const prevBtn = document.getElementById("prevBtn");
-  const nextBtn = document.getElementById("nextBtn");
-  const counterEl = document.getElementById("counter");
+  const prevBtn       = document.getElementById("prevBtn");
+  const nextBtn       = document.getElementById("nextBtn");
+  const counterEl     = document.getElementById("counter");
 
   let sentences = [];
   let index = 0;
@@ -138,23 +145,36 @@
   }
 
   async function translate(text) {
-    const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh&tl=ja&dt=t&q=" + encodeURIComponent(text);
+    const url =
+      "https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh&tl=ja&dt=t&q=" +
+      encodeURIComponent(text);
     const res = await fetch(url);
     const data = await res.json();
     return data[0].map(x => x[0]).join("");
   }
 
   async function buildWordCards(sentence) {
-    const segs = segmenter.doSegment(sentence, { simple: true });
-    const words = [...new Set(segs.filter(w=>/[\u4e00-\u9fff]/.test(w)))];
+    let words = [];
+
+    if (segmenter) {
+      // segmentit が使える場合
+      const segs = segmenter.doSegment(sentence, { simple: true });
+      words = [...new Set(segs.filter(w => /[\u4e00-\u9fff]/.test(w)))];
+    } else {
+      // フォールバック：漢字を1文字ずつユニークに
+      const blocks = sentence.match(/[\u4e00-\u9fff]+/g) || [];
+      const set = new Set();
+      blocks.forEach(b => { for (const ch of b) set.add(ch); });
+      words = [...set];
+    }
 
     const cards = [];
     for (let w of words) {
-      const pinyin = window.pinyinPro.pinyin(w, {toneType:"pinyin", type:"string"});
+      const pinyin = window.pinyinPro.pinyin(w, { toneType:"pinyin", type:"string" });
       let jp;
       try { jp = await translate(w); }
       catch { jp = "(翻訳エラー)"; }
-      cards.push({w, pinyin, jp});
+      cards.push({ w, pinyin, jp });
     }
     return cards;
   }
@@ -173,14 +193,14 @@
     statusEl.textContent = "読み込み中…";
 
     try {
-      const py = window.pinyinPro.pinyin(s, {toneType:"pinyin", type:"string"});
+      const py = window.pinyinPro.pinyin(s, { toneType:"pinyin", type:"string", nonZh:"consecutive" });
       const jp = await translate(s);
       const cards = await buildWordCards(s);
 
       pinyinSentenceEl.textContent = py;
       jpSentenceEl.textContent = jp;
 
-      cards.forEach(c=>{
+      cards.forEach(c => {
         wordCardsEl.innerHTML += `
           <div class="word-card">
             <div class="hanzi">${c.w}</div>
@@ -188,16 +208,24 @@
             <div class="mean">${c.jp}</div>
           </div>`;
       });
-
     } finally {
       statusEl.textContent = "";
       loading = false;
     }
   }
 
+  // ペースト：貼るだけ（ローカル file:// だとブラウザ設定で使えないことがあります）
   pasteBtn.onclick = async () => {
-    const text = await navigator.clipboard.readText();
-    sourceInput.value = text;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        alert("クリップボードにテキストがありません。");
+        return;
+      }
+      sourceInput.value = text;
+    } catch (e) {
+      alert("クリップボードから読み取れませんでした：" + e.message);
+    }
   };
 
   clearBtn.onclick = () => {
@@ -215,8 +243,8 @@
     show(0);
   };
 
-  prevBtn.onclick = () => { if(!loading && index>0) show(index-1); };
-  nextBtn.onclick = () => { if(!loading && index<sentences.length-1) show(index+1); };
+  prevBtn.onclick = () => { if (!loading && index > 0) show(index - 1); };
+  nextBtn.onclick = () => { if (!loading && index < sentences.length - 1) show(index + 1); };
 </script>
 </body>
 </html>
