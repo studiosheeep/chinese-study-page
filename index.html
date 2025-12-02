@@ -488,20 +488,32 @@ dictAddBtn.onclick = () => {
     return;
   }
 
-  // 保存
+  // ---- 既存単語に対して上書き可能にする ----
+  const isUpdate = !!USER_DICT[w] || !!BASE_DICT[w];
+
+  // USER_DICT に保存（BASE_DICT にあった場合も USER_DICT で上書き扱い）
   USER_DICT[w] = { pinyin: p, ja: j };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(USER_DICT));
 
-  // 有効辞書にも反映
+  // CUSTOM_DICT に反映（画面表示用）
   CUSTOM_DICT[w] = { pinyin: p, ja: j };
 
-  dictStatusEl.textContent = `「${w}」を登録しました。`;
+  // ステータス表示
+  if (isUpdate) {
+    dictStatusEl.textContent = `「${w}」を上書きしました。`;
+  } else {
+    dictStatusEl.textContent = `「${w}」を登録しました。`;
+  }
+
+  // 入力欄クリア
   dictWordEl.value = "";
   dictPinyinEl.value = "";
   dictJaEl.value = "";
 
-  // 表示中の文を更新
-  if (sentences.length > 0) show(index);
+  // 今表示している文があれば再描画して反映
+  if (sentences.length > 0) {
+    show(index);
+  }
 };
 
 /* ---- UI 操作 ---- */
