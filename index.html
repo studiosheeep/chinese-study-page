@@ -225,16 +225,6 @@
     "蒂法": { pinyin: "dì fǎ", ja: "ティファ" }
   };
 
-// ---- 追加：外部辞書を読み込み ----
-function loadExternalDict() {
-  try {
-    const data = localStorage.getItem("customCnDict");
-    return data ? JSON.parse(data) : {};
-  } catch {
-    return {};
-  }
-}
-
 // sentence.html 起動時に外部辞書をマージ
 const externalDict = loadExternalDict();
 Object.assign(CUSTOM_DICT, externalDict);
