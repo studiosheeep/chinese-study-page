@@ -110,6 +110,14 @@
       font-size: 14px;
       min-width: 100px;
       background: #ffffff;
+      cursor: pointer;               /* ← 追加 */
+      transition: background 0.15s, border-color 0.15s; /* ← 追加 */
+    }
+
+    /* クリック中のカード（ハイライト） */
+    .word-card.active {
+      background: #fef9c3;  /* 薄い黄色 */
+      border-color: #facc15;
     }
 
     .word-card .hanzi { font-size: 17px; margin-bottom: 4px; }
@@ -433,6 +441,41 @@ async function buildWordCards(sentence) {
   return cards;
 }
 
+/* ---- 単語読み上げ（Web Speech API） ---- */
+let cnVoice = null;
+
+function initCnVoice() {
+  if (!("speechSynthesis" in window)) return;
+  const voices = window.speechSynthesis.getVoices();
+  // 中国語っぽい声を探す
+  cnVoice =
+    voices.find(v => v.lang && v.lang.toLowerCase().startsWith("zh")) ||
+    voices.find(v => v.lang && v.lang.toLowerCase().includes("cmn")) ||
+    null;
+}
+
+// いくつかのブラウザでは非同期で声がロードされる
+if ("speechSynthesis" in window) {
+  initCnVoice();
+  window.speechSynthesis.onvoiceschanged = initCnVoice;
+}
+
+function speakChinese(text) {
+  if (!("speechSynthesis" in window)) {
+    console.warn("このブラウザは speechSynthesis に対応していません");
+    return;
+  }
+  if (!text) return;
+
+  // 再生中の音声があれば止める
+  window.speechSynthesis.cancel();
+
+  const uttr = new SpeechSynthesisUtterance(text);
+  uttr.lang = cnVoice ? cnVoice.lang : "zh-CN";
+  if (cnVoice) uttr.voice = cnVoice;
+  window.speechSynthesis.speak(uttr);
+}  
+
 /* ---- 文の表示 ---- */
 async function show(idx) {
   index = idx;
@@ -462,13 +505,38 @@ async function show(idx) {
     pinyinSentenceEl.textContent = py;
     jpSentenceEl.textContent = jp;
 
-    cards.forEach(c => {
-      wordCardsEl.innerHTML += `
+    // 1回で innerHTML を組み立てる
+    const html = cards
+      .map(
+        c => `
         <div class="word-card">
           <div class="hanzi">${c.w}</div>
           <div class="pinyin">${c.pinyin}</div>
           <div class="mean">${c.jp}</div>
-        </div>`;
+        </div>`
+      )
+      .join("");
+    wordCardsEl.innerHTML = html;
+
+    // クリックでハイライト＋音声再生
+    const cardEls = wordCardsEl.querySelectorAll(".word-card");
+    cardEls.forEach(card => {
+      card.addEventListener("click", () => {
+        // 既存のアクティブを外す
+        wordCardsEl
+          .querySelectorAll(".word-card.active")
+          .forEach(el => el.classList.remove("active"));
+
+        // 自分をアクティブ表示
+        card.classList.add("active");
+
+        // 漢字部分のテキストを読み上げる
+        const hanziEl = card.querySelector(".hanzi");
+        const text = hanziEl ? hanziEl.textContent.trim() : "";
+        if (text) {
+          speakChinese(text);
+        }
+      });
     });
 
   } finally {
